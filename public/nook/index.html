@@ -1,0 +1,11 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>XUPER TV · NOOK TV</title><link rel="stylesheet" href="/nook/nook.css"></head><body>
+<aside><a class="brand" href="/">NOOK<span>TV</span></a><p>Fuentes y emisión</p><nav><button data-view="nook" class="selected">Mi catálogo NOOK</button><button data-view="xuper-live">XUPER en vivo</button><button data-view="movies">Películas XUPER</button><button data-view="series">Series XUPER</button></nav><a href="/index.html" target="_blank" rel="noopener">Abrir interfaz LG</a><p class="hint">Control local del servidor SSH.<br>La salida utiliza el reproductor de NOOK TV.</p></aside>
+<main><header><div><p class="eyebrow">NOOK TV</p><h1>Elige qué sale en tu canal.</h1><p class="subtitle">Tus fuentes de siempre y el catálogo XUPER, desde el mismo lugar.</p></div><button id="refresh">Actualizar</button></header>
+<section class="onair"><div><span class="indicator"></span><span id="phase">Conectando con NOOK TV</span><h2 id="onair">Leyendo emisión actual…</h2><p id="clock"></p></div><div class="controls"><button data-action="pause">Pausar</button><button data-action="play">Reanudar</button><button id="routine">Volver a programación</button></div></section>
+<div id="notice" role="status" hidden></div>
+<section class="toolbar"><div><h2 id="section-title">Mi catálogo NOOK</h2><p id="count"></p></div><input id="search" placeholder="Buscar en NOOK TV" aria-label="Buscar contenido"><select id="kind" aria-label="Tipo"><option value="">Todo</option><option value="channels">Canales</option><option value="movies">Películas</option><option value="series">Series</option></select><select id="category" aria-label="Categoría" hidden></select></section>
+<div id="results" class="grid"></div><div class="pagination"><button id="previous">Anterior</button><span id="page"></span><button id="next">Siguiente</button></div>
+<footer>Las fuentes privadas permanecen en el servidor. <a href="/provider/channels.m3u">Lista M3U de canales XUPER para NOOK</a></footer>
+</main>
+<dialog id="detail"><button class="close" id="close-detail">Cerrar</button><div id="detail-content"></div></dialog>
+<script src="/nook/nook.js"></script></body></html>
