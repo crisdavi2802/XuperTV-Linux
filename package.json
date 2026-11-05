@@ -8,7 +8,9 @@
   "main": "desktop/main.cjs",
   "productName": "XUPER TV+",
   "scripts": {
-    "build:linux": "electron-builder --linux --x64"
+    "build:linux": "electron-builder --linux --x64",
+    "build:linux:rpm": "electron-builder --linux rpm --x64",
+    "build:linux:pacman": "electron-builder --linux pacman --x64"
   },
   "build": {
     "appId": "com.xuptertv.desktop",
@@ -48,7 +50,19 @@
       "priority": "optional",
       "afterInstall": "build/after-install.sh"
     },
-    "artifactName": "xuper-tv-plus_${version}_${arch}.${ext}"
+    "artifactName": "xuper-tv-plus_${version}_${arch}.${ext}",
+    "rpm": {
+      "depends": [
+        "default",
+        "ffmpeg"
+      ],
+      "compression": "xz"
+    },
+    "pacman": {
+      "depends": [
+        "default"
+      ]
+    }
   },
   "devDependencies": {
     "electron": "^45.2.2",
