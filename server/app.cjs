@@ -9,24 +9,32 @@ const {nookAdapter}=require('./nook.cjs');
 const {JobManager}=require('./jobs.cjs');
 const {spawn}=require('node:child_process');
 const releases=require('./releases.cjs');
+const {listenLoopback}=require('./loopback.cjs');
+const {DownloadQueue}=require('./download-queue.cjs');
+const {ExclusiveChannels}=require('./exclusive-channels.cjs');
+const CURRENT_VERSION=require('../package.json').version.split('-')[0];
 const {ScheduleStore}=require('./schedules.cjs');
-async function probeDuration(stream,ffmpeg){if(stream.duration>0)return;const executable=ffmpeg?.replace(/ffmpeg(\.exe)?$/i,'ffprobe$1')||'ffprobe';await new Promise(resolve=>{let data='';const args=['-v','error','-rw_timeout','8000000','-probesize','2M','-analyzeduration','2M'];if(Object.keys(stream.headers||{}).length)args.push('-headers',Object.entries(stream.headers).map(([k,v])=>k+': '+String(v).replace(/[\r\n]/g,'')+'\r\n').join(''));args.push('-show_entries','format=duration','-of','json',stream.url);const p=spawn(executable,args,{windowsHide:true});const timeout=setTimeout(()=>{p.kill();resolve();},10000);p.stdout.on('data',c=>data+=c);p.on('error',()=>{clearTimeout(timeout);resolve();});p.on('close',()=>{clearTimeout(timeout);try{stream.duration=Number(JSON.parse(data).format.duration)||0;}catch{}resolve();});});}
+async function probeDuration(stream,ffmpeg){if(stream.videoCodec)return;const executable=ffmpeg?.replace(/ffmpeg(\.exe)?$/i,'ffprobe$1')||'ffprobe';await new Promise(resolve=>{let data='';const args=['-v','error','-rw_timeout','8000000','-probesize','2M','-analyzeduration','2M'];if(Object.keys(stream.headers||{}).length)args.push('-headers',Object.entries(stream.headers).map(([k,v])=>k+': '+String(v).replace(/[\r\n]/g,'')+'\r\n').join(''));args.push('-show_entries','format=duration:stream=codec_type,codec_name','-of','json',stream.url);const p=spawn(executable,args,{windowsHide:true});const timeout=setTimeout(()=>{p.kill();resolve();},8000);p.stdout.on('data',c=>data+=c);p.on('error',()=>{clearTimeout(timeout);resolve();});p.on('close',()=>{clearTimeout(timeout);try{const info=JSON.parse(data);stream.duration=Number(info.format?.duration)||stream.duration||0;stream.videoCodec=info.streams?.find(s=>s.codec_type==='video')?.codec_name||'';}catch{}resolve();});});}
 const call=(method,...args)=>new Promise((resolve,reject)=>magis[method](...args,(error,data,more)=>error?reject(error):resolve({data,more})));
 const proxyStart=()=>new Promise((resolve,reject)=>proxy.start(error=>error?reject(error):resolve()));
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.svg':'image/svg+xml','.woff2':'font/woff2','.ico':'image/x-icon','.mp3':'audio/mpeg'};
 async function createApp(options={}){
+ const exclusive=new ExclusiveChannels(options.exclusive);
+ const exclusiveReady=options.exclusive?Promise.resolve():exclusive.configureFromOfficial();
  const root=path.resolve(__dirname,'../public'),token=randomBytes(32).toString('hex'),nook=nookAdapter(options.nook);
  let address='';const relay=new MediaRelay({ffmpeg:options.ffmpeg||process.env.FFMPEG||'ffmpeg',base:()=>address});
  const jobs=options.jobsDirectory?new JobManager({directory:options.jobsDirectory,stateFile:path.join(options.stateDirectory||options.jobsDirectory,'jobs.json'),ffmpeg:options.ffmpeg||'ffmpeg'}):null;
  const schedules=options.stateDirectory?new ScheduleStore(path.join(options.stateDirectory,'schedules')):null;
+ const downloads=jobs?new DownloadQueue({directory:jobs.directory,stateFile:path.join(options.stateDirectory||jobs.directory,'download-queue.json'),resolve:async job=>(await call('resolve',job.contentId,job.seriesId,{})).data,verify:async file=>{const stream={url:file,headers:{}};await probeDuration(stream,options.ffmpeg);if(!stream.videoCodec)throw Error('No se pudo verificar el vídeo descargado. Conservamos el archivo parcial.');}}):null;
  const recorderJobs=()=>{if(!options.stateDirectory)return[];return fs.readdirSync(options.stateDirectory).filter(n=>/^recorder-jobs-[a-f0-9]+\.json$/.test(n)).flatMap(n=>{try{return JSON.parse(fs.readFileSync(path.join(options.stateDirectory,n),'utf8')).filter(j=>j.status!=='completed'||fs.existsSync(j.file)).map(j=>({...j,background:true}));}catch{return[];}});};
- const findJob=id=>jobs?.jobs.find(j=>j.id===id)||recorderJobs().find(j=>j.id===id);
+ const findJob=id=>jobs?.jobs.find(j=>j.id===id)||downloads?.jobs.find(j=>j.id===id)||recorderJobs().find(j=>j.id===id);
  const sources=new Map();
  function json(res,status,data){const body=JSON.stringify(data);res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Content-Length':Buffer.byteLength(body),'Cache-Control':'no-store'});res.end(body);}
  async function subtitleURLs(stream){if(stream.subtitles?.length){await proxyStart();stream.subtitles=stream.subtitles.map(s=>({...s,url:proxy.addSubtitle(s.url)}));}return stream;}
  async function resolveLive(params){
   let stream;
   if(params.get('streamUrl')){const url=new URL(params.get('streamUrl'));if(!['http:','https:'].includes(url.protocol))throw Error('Fuente no compatible');stream={url:url.href,headers:{},isHls:/\.m3u8/i.test(url.pathname)};}
+  else if((params.get('channelCode')||'').startsWith('extra:'))stream=await exclusive.resolve(params.get('channelCode'));
   else stream=(await call('resolveLive',params.get('channelCode'))).data;
   await proxyStart();stream.proxyPath=proxy.baseUrl()+'/media/'+proxy.add(stream.url,stream.headers,0)+'/stream.'+(stream.isHls===false?'ts':'m3u8');stream.isHls=stream.isHls!==false;return stream;
  }
@@ -47,13 +55,27 @@ async function createApp(options={}){
   try{
    if(u.pathname.startsWith('/s/'))return relay.handle(req,res,u);
    if(u.pathname==='/media/abort'){relay.stop();proxy.killActiveStreams();return json(res,200,{returnValue:true});}
+   if(u.pathname==='/api/vpn'&&req.method==='GET')return json(res,200,options.vpn?.status()||{enabled:false,state:'unavailable',engineReady:false});
+   if(['/api/vpn/enable','/api/vpn/configure','/api/vpn/setup'].includes(u.pathname)){
+    if(req.method!=='POST'||req.headers['x-xuper-token']!==token)return json(res,403,{error:'Solicitud no autorizada'});
+    if(!options.vpn)throw Error('VPN no disponible en esta plataforma');const data=await body(req);
+    return json(res,200,u.pathname.endsWith('/enable')?await options.vpn.enable(data.enabled===true):u.pathname.endsWith('/setup')?options.vpn.setup():await options.vpn.configure());
+   }
+   if(u.pathname==='/api/events'&&req.method==='GET')return json(res,200,await releases.fetchPublicDocument('events.json'));
    if(u.pathname==='/api/session')return json(res,200,{token,nook:!!nook});
-   if(u.pathname==='/api/updates'&&req.method==='GET')return json(res,200,{update:releases.updatePolicy(await releases.fetchManifest(),'1.3.0'),current:'1.3.0'});
+   if(u.pathname==='/api/updates'&&req.method==='GET')return json(res,200,{update:releases.updatePolicy(await releases.fetchManifest(),CURRENT_VERSION),current:CURRENT_VERSION});
    if(u.pathname==='/api/updates/open'){
     if(req.method!=='POST'||req.headers['x-xuper-token']!==token)return json(res,403,{error:'Solicitud no autorizada'});
-    const update=releases.updatePolicy(await releases.fetchManifest(),'1.3.0');if(!update)throw Error('Ya tienes la última versión');await options.openDownload?.(update.url);return json(res,200,{ok:true});
+    const update=releases.updatePolicy(await releases.fetchManifest(),CURRENT_VERSION);if(!update)throw Error('Ya tienes la última versión');await options.openDownload?.(update.url);return json(res,200,{ok:true});
    }
-   if(u.pathname==='/api/jobs'&&req.method==='GET')return json(res,200,{jobs:[...(jobs?.list()||[]),...recorderJobs()],directory:jobs?.directory||'',schedules:schedules?.list()||[]});
+   if(u.pathname==='/api/jobs'&&req.method==='GET')return json(res,200,{jobs:[...(downloads?.list()||[]),...(jobs?.list()||[]),...recorderJobs()],directory:jobs?.directory||'',schedules:schedules?.list()||[]});
+   if(u.pathname.startsWith('/api/downloads/')){
+    if(!downloads||req.method!=='POST'||req.headers['x-xuper-token']!==token)return json(res,403,{error:'Solicitud no autorizada'});
+    const data=await body(req);
+    if(u.pathname==='/api/downloads/add')return json(res,200,{jobs:downloads.add(data.items)});
+    const operation=u.pathname.split('/').pop();if(!['pause','resume','cancel'].includes(operation))return json(res,404,{});
+    downloads[operation](data.id);return json(res,200,{ok:true});
+   }
    if(u.pathname==='/api/schedules/add'||u.pathname==='/api/schedules/cancel'||u.pathname==='/api/fullscreen'||u.pathname==='/api/external'){
     if(req.method!=='POST'||req.headers['x-xuper-token']!==token)return json(res,403,{error:'Solicitud no autorizada'});const data=await body(req);
     if(u.pathname==='/api/fullscreen'){await options.fullscreen?.(data.enabled===true);return json(res,200,{ok:true});}
@@ -75,12 +97,12 @@ async function createApp(options={}){
     }
     if(u.pathname==='/api/jobs/play'){const job=findJob(data.id);if(!job||job.status!=='completed'||!fs.existsSync(job.file))throw Error('El archivo ya no está en este PC. Actualiza Descargas.');const stream={url:job.file,headers:{},duration:0};await probeDuration(stream,options.ffmpeg);return json(res,200,{proxyPath:relay.register(stream),duration:stream.duration,isHls:false,offline:true});}
     if(u.pathname==='/api/jobs/stop'){const background=recorderJobs().find(j=>j.id===data.id);if(background){const schedule=schedules?.list().find(s=>s.jobId===background.id);if(schedule)schedules.cancel(schedule.id);}else jobs.stop(data.id);return json(res,200,{ok:true});}
-    if(u.pathname==='/api/jobs/folder'){if(options.selectDirectory){const directory=await options.selectDirectory();if(directory){jobs.directory=path.resolve(directory);fs.mkdirSync(jobs.directory,{recursive:true});}}return json(res,200,{directory:jobs.directory});}
+    if(u.pathname==='/api/jobs/folder'){if(options.selectDirectory){const directory=await options.selectDirectory();if(directory){jobs.directory=path.resolve(directory);if(downloads)downloads.directory=jobs.directory;fs.mkdirSync(jobs.directory,{recursive:true});}}return json(res,200,{directory:jobs.directory});}
     if(u.pathname==='/api/jobs/reveal'){const file=findJob(data.id)?.file||jobs.directory;await options.revealFile?.(file);return json(res,200,{ok:true});}
     if(u.pathname==='/api/jobs/open'){const file=findJob(data.id)?.file;if(!file||!fs.existsSync(file))throw Error('Archivo no encontrado');await options.openFile?.(file);return json(res,200,{ok:true});}
     return json(res,404,{});
    }
-   if(u.pathname==='/api/ping')return json(res,200,{returnValue:true,platform:nook?'nook':'desktop',version:'1.3.0'});
+   if(u.pathname==='/api/ping')return json(res,200,{returnValue:true,platform:nook?'nook':'desktop',version:CURRENT_VERSION,displayVersion:require('../package.json').version,edition:require('../package.json').xuperEdition||'standard',builtAt:require('../package.json').buildInfo?.builtAt||null});
    if(u.pathname.startsWith('/api/nook/')){
     if(!nook)return json(res,404,{error:'Esta instalación no está conectada a NOOK TV.'});
     const p=u.searchParams;
@@ -113,7 +135,7 @@ async function createApp(options={}){
     return json(res,404,{error:'Operación no disponible'});
    }
    if(u.pathname==='/provider/channels.m3u'){
-    const categories=(await call('getLiveCategories')).data;let channels=[];
+    const categories=[...(await call('getLiveCategories')).data];let channels=[];
     if(categories?.length)channels=(await call('getLiveChannels',categories[0].id||categories[0].columnId,1,50)).data;
     let list='#EXTM3U\n';for(const ch of channels){const id=ch.channelCode||ch.id;sources.set(id,ch);list+=`#EXTINF:-1 group-title="XUPER TV",${String(ch.name||ch.title).replace(/[\r\n]/g,' ')}\n${address}/provider/live/${encodeURIComponent(id)}.m3u8\n`;}
     res.writeHead(200,{'Content-Type':'application/x-mpegurl'});return res.end(list);
@@ -129,7 +151,8 @@ async function createApp(options={}){
     else if(method==='resolve'||method==='resolveSmooth')output=safeStream(await resolveVod(p,method==='resolveSmooth'||p.get('forceRelay')==='true'||['smooth','relay'].includes(p.get('playbackMode'))));
     else if(method==='resolveLive')output=safeStream(await resolveLive(p));
     else if(method==='mediaInfo')output=await subtitleURLs((await call('mediaInfo',p.get('contentId'),p.get('seriesContentId')||'')).data);
-    else if(method==='liveCategories')output={categories:(await call('getLiveCategories')).data};
+    else if(method==='liveCategories'){await exclusiveReady;const categories=(await call('getLiveCategories')).data;if(exclusive.list().length)categories.unshift({id:'xuper-exclusives',name:'Exclusivos · fuente adicional'});output={categories};}
+    else if(method==='liveChannels'&&p.get('columnId')==='xuper-exclusives'){const page=Math.max(1,Number(p.get('pageNum'))||1),size=50,list=exclusive.list();output={channels:list.slice((page-1)*size,page*size),hasMore:page*size<list.length};}
     else if(method==='liveChannels'){const result=await call('getLiveChannels',p.get('columnId'),Number(p.get('pageNum'))||1,Number(p.get('pageSize'))||50);output={channels:result.data.map(({liveAddressList,...channel})=>channel),hasMore:!!result.more};}
     else if(method==='fetchM3u')output={channels:(await call('fetchM3u',p.get('url'))).data};
     else if(method==='abortMedia'){relay.stop();proxy.killActiveStreams();}
@@ -145,8 +168,8 @@ async function createApp(options={}){
    if(req.method==='HEAD')return res.end();fs.createReadStream(target).pipe(res);
   }catch(error){json(res,502,{returnValue:false,errorText:error.message,error:error.message});}
  });
- await new Promise((resolve,reject)=>{const failed=error=>{if(error.code==='EADDRINUSE'&&options.fallbackPort){server.once('error',reject);server.listen(0,'127.0.0.1',resolve);}else reject(error);};server.once('error',failed);server.listen(options.port??0,'127.0.0.1',()=>{server.removeListener('error',failed);resolve();});});
+ await listenLoopback(server,options.port??0,options.fallbackPort===true);
  address='http://127.0.0.1:'+server.address().port;
- return {url:address,server,token,jobs,close:()=>new Promise(resolve=>{jobs?.close();relay.close();server.close(resolve);server.closeAllConnections();})};
+ return {url:address,server,token,jobs,downloads,close:()=>new Promise(resolve=>{downloads?.close();jobs?.close();relay.close();server.close(resolve);server.closeAllConnections();})};
 }
 module.exports={createApp};

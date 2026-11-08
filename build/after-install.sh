@@ -4,7 +4,11 @@ set -e
 DESKTOP="/usr/share/applications/xuper-tv-desktop.desktop"
 
 if [ -f "$DESKTOP" ]; then
-    sed -i 's|^Exec=.*|Exec="/opt/XUPER TV+/xuper-tv-desktop" --no-sandbox %U|' "$DESKTOP"
+    # Mantener la ruta generada por electron-builder (/opt/XUPER TV Plus/...)
+    # y añadir --no-sandbox antes de %U si no está presente.
+    if ! grep -q -- "--no-sandbox" "$DESKTOP"; then
+        sed -i 's| %U$| --no-sandbox %U|' "$DESKTOP"
+    fi
 fi
 
 if command -v update-desktop-database >/dev/null 2>&1; then

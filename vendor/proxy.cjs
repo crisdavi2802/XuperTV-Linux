@@ -496,17 +496,22 @@ function handler(req, res) {
   forward(req, res, entry, token);
 }
 
+var starting = null;
 function start(cb) {
   if (server && port) { return cb(null, port); }
+  if (starting) { starting.push(cb); return; }
+  starting = [cb];
   server = http.createServer(handler);
+  var current = server;
   server.timeout = 0;
   if (typeof server.setTimeout === 'function') {
     server.setTimeout(0);
   }
-  server.on('error', function (err) { cb(err); });
+  server.on('error', function (err) { var waiting=starting||[];starting=null;if(server===current){server=null;port=0;}waiting.forEach(function(done){done(err);}); });
   server.listen(0, '127.0.0.1', function () {
-    port = server.address().port;
-    cb(null, port);
+    if(server!==current)return;
+    port = current.address().port;
+    var waiting=starting||[];starting=null;waiting.forEach(function(done){done(null,port);});
   });
 }
 
@@ -515,7 +520,7 @@ function baseUrl() {
 }
 
 module.exports = {
-  close: function () { killActiveStreams(); if (server) { if (server.closeAllConnections) server.closeAllConnections(); server.close(); server = null; port = 0; } },
+  close: function () { killActiveStreams();var waiting=starting||[];starting=null;if (server) { if (server.closeAllConnections) server.closeAllConnections(); server.close(); server = null; port = 0; }waiting.forEach(function(done){done(new Error('Se cerró el reproductor.'));}); },
   start: start,
   add: add,
   addSubtitle: addSubtitle,

@@ -1,61 +1,11 @@
-# Third-party components and project attribution
+# Componentes y procedencia
 
-## Original application
+El código propio y la adaptación del port webOS conservan su licencia MIT, incluida en LICENSE. Los recursos originales del catálogo siguen perteneciendo a sus autores; public/data/portal.js contiene metadatos y referencias a imágenes del portal, no vídeos.
 
-XUPER TV Desktop 1.3.0
+Windows incluye Electron 45.2.1 y sus avisos Chromium/Electron; React, React DOM, Lucide, hls.js y mpegts.js. Las licencias de las dependencias del navegador están en public/licenses.
 
-Original author: cristianco7
+El ejecutable FFmpeg se distribuye separado del código de la app y se invoca como proceso externo. Windows usa FFmpeg N-125875-g5d4d3bdc61, compilación GPL de yt-dlp.FFmpeg ya instalada en este PC. La licencia completa está en resources/FFmpeg-LICENSE.txt y junto a ffmpeg.exe dentro del portable.
 
-The original application source and its existing notices are
-preserved in this Linux adaptation.
+Fuentes y compilación de FFmpeg: https://github.com/yt-dlp/FFmpeg-Builds y https://github.com/FFmpeg/FFmpeg/commit/5d4d3bdc61 . No se ha modificado este binario. El runtime Linux es Node.js 24.22.2 oficial, con su licencia completa en runtime/LICENSE; usa el FFmpeg del sistema.
 
-## Linux port
-
-Linux adaptation, Electron platform configuration, packaging
-and build scripts:
-
-Cristian David Giraldo.
-
-This contribution does not imply authorship of the original
-application or ownership of the XUPER TV+ brand.
-
-## Electron and build tools
-
-The Linux desktop application is packaged using Electron.
-
-Build tooling includes electron-builder.
-
-Exact versions and their respective license notices are
-recorded in package.json and package-lock.json.
-
-## FFmpeg
-
-The Linux adaptation uses FFmpeg and FFprobe installed
-on the host system:
-
-- /usr/bin/ffmpeg
-- /usr/bin/ffprobe
-
-The Debian package declares FFmpeg as a dependency.
-
-The AppImage build does not currently include a bundled
-FFmpeg distribution.
-
-FFmpeg is a separate third-party project and remains
-subject to its own license and distribution terms.
-
-## Branding and external content
-
-The XUPER TV+ name, logos, audiovisual content, catalog
-metadata, external services and other third-party materials
-are not claimed as original work by the Linux port author.
-
-Their respective rights holders and terms remain applicable.
-
-## Disclaimer
-
-This is an unofficial community Linux adaptation.
-
-It is not presented as an official release or as an
-endorsement by the original application's author,
-the XUPER TV+ service or its trademark holders.
+Los catálogos se consultan con una sesión de dispositivo en tiempo de ejecución. No se incluyen vídeos, cuentas de terceros ni secretos del servidor NOOK TV en el paquete de Linux.
