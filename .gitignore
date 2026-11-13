@@ -1,0 +1,32 @@
+# Dependencias
+node_modules/
+
+# Compilaciones
+release/
+dist/
+out/
+
+# Archivos temporales
+*.log
+*.tmp
+*.bak
+*.backup
+*.debug-backup
+
+# Respaldos de configuración
+package.json.backup*
+package.json.pre-builder
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Configuración local
+.env
+.env.*
+!.env.example
+
+# Cachés
+.cache/
+.npm/

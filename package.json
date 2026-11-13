@@ -1,0 +1,78 @@
+{
+  "name": "liquidglass-iptv-desktop",
+  "version": "1.3.0",
+  "private": true,
+  "description": "LIQUIDGLASS IPTV PLAYER para Windows, macOS y Linux",
+  "author": "cristianco7",
+  "license": "MIT",
+  "main": "desktop/main.cjs",
+  "productName": "LIQUIDGLASS IPTV PLAYER",
+  "scripts": {
+    "build:linux": "electron-builder --linux --x64",
+    "build:linux:rpm": "electron-builder --linux rpm --x64",
+    "build:linux:pacman": "electron-builder --linux pacman --x64"
+  },
+  "build": {
+    "appId": "com.liquidglass.iptv",
+    "productName": "LiquidGlass IPTV Player",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**/*",
+      "server/**/*",
+      "vendor/**/*",
+      "public/**/*",
+      "package.json",
+      "LICENSE",
+      "THIRD_PARTY.md",
+      "!**/*.backup",
+      "!**/*.map",
+      "LICENSE-LINUX"
+    ],
+    "linux": {
+      "target": [
+        "deb",
+        "AppImage"
+      ],
+      "category": "AudioVideo",
+      "synopsis": "Aplicación de televisión y contenido multimedia",
+      "description": "Aplicación de escritorio LIQUIDGLASS IPTV PLAYER.",
+      "maintainer": "LiquidGlass IPTV Player",
+      "syncDesktopName": true,
+      "icon": "build/icon.png"
+    },
+    "deb": {
+      "depends": [
+        "ffmpeg"
+      ],
+      "priority": "optional",
+      "afterInstall": "build/after-install.sh"
+    },
+    "artifactName": "liquidglass-iptv_${version}_${arch}.${ext}",
+    "rpm": {
+      "depends": [
+        "default",
+        "ffmpeg"
+      ],
+      "compression": "xz"
+    },
+    "pacman": {
+      "depends": [
+        "default"
+      ]
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.2.2",
+    "electron-builder": "^26.18.0"
+  },
+  "homepage": "",
+  "contributors": [
+    {
+      "name": "Cristian David Giraldo",
+      "contribution": "Linux port, Electron adaptation, packaging and build scripts"
+    }
+  ]
+}
